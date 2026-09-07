@@ -1,0 +1,10 @@
+@ScreenShare.Api_HostAddress = http://localhost:5145
+
+### Generate LiveKit token
+POST {{ScreenShare.Api_HostAddress}}/api/livekit/token
+Content-Type: application/json
+
+{
+  "roomName": "test-room",
+  "identity": "user-1"
+}

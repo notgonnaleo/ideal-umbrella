@@ -1,0 +1,111 @@
+```html
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Compartilhar tela</title>
+</head>
+
+<body>
+  <h1>Compartilhar tela</h1>
+
+  <button id="share">
+    Compartilhar tela
+  </button>
+
+  <button id="stop">
+    Parar
+  </button>
+
+  <pre id="error"></pre>
+
+  <script type="module">
+    import {
+      Room,
+      createLocalScreenTracks,
+      Track
+    } from "https://cdn.jsdelivr.net/npm/livekit-client@2/+esm";
+
+    const button = document.getElementById("share");
+    const stop = document.getElementById("stop");
+    const error = document.getElementById("error");
+
+    let room = null;
+    let tracks = [];
+
+    button.onclick = async () => {
+      try {
+        error.textContent = "";
+
+        // Pega token
+        const response = await fetch("/livekit/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            roomName: "test-room",
+            identity: `screen-${crypto.randomUUID()}`
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            `HTTP ${response.status}: ${JSON.stringify(data)}`
+          );
+        }
+
+        // Conecta ao LiveKit
+        room = new Room();
+
+        await room.connect(
+          data.serverUrl,
+          data.token
+        );
+
+        // Captura a tela
+        tracks = await createLocalScreenTracks({
+          audio: false
+        });
+
+        // Publica a tela
+        for (const track of tracks) {
+          await room.localParticipant.publishTrack(
+            track,
+            {
+              source: Track.Source.ScreenShare
+            }
+          );
+        }
+
+        button.disabled = true;
+
+      } catch (e) {
+        error.textContent =
+          e instanceof Error
+            ? `${e.name}: ${e.message}\n${e.stack ?? ""}`
+            : String(e);
+      }
+    };
+
+    stop.onclick = async () => {
+      for (const track of tracks) {
+        track.stop();
+        await room.localParticipant.unpublishTrack(track);
+      }
+
+      tracks = [];
+
+      if (room) {
+        await room.disconnect();
+        room = null;
+      }
+
+      button.disabled = false;
+    };
+  </script>
+</body>
+</html>
+```
