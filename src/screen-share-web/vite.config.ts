@@ -8,12 +8,12 @@ export default defineConfig({
     host: true,
 
     allowedHosts: [
-      "continue-alternatives-translated-honest.trycloudflare.com",
+      "closely-crown-championship-supreme.trycloudflare.com",
     ],
 
     proxy: {
       "/api": {
-        target: "http://localhost:5145",
+        target: "https://andreas-mechanics-prev-kenny.trycloudflare.com",
         changeOrigin: true,
       },
     },

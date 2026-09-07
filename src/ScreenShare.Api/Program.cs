@@ -7,7 +7,7 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173",  "https://continue-alternatives-translated-honest.trycloudflare.com")
+            .WithOrigins("http://localhost:5173", "https://closely-crown-championship-supreme.trycloudflare.com")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
