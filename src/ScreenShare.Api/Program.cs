@@ -7,7 +7,7 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins("https://closely-crown-championship-supreme.trycloudflare.com")
+            .WithOrigins("https://screenshareapp.duckdns.org/")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
