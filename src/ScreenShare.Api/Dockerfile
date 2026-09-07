@@ -16,7 +16,7 @@ RUN apk update && apk upgrade --no-cache
 
 COPY --from=build /app .
 
-EXPOSE 8080
-ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 6010
+ENV ASPNETCORE_URLS=http://+:6010
 
 ENTRYPOINT ["dotnet", "ScreenShare.Api.dll"]
