@@ -8,12 +8,12 @@ export default defineConfig({
     host: true,
 
     allowedHosts: [
-      "closely-crown-championship-supreme.trycloudflare.com",
+      "api-screenshare.duckdns.org",
     ],
 
     proxy: {
       "/api": {
-        target: "https://andreas-mechanics-prev-kenny.trycloudflare.com",
+        target: "https://api-screenshare.duckdns.org",
         changeOrigin: true,
       },
     },
