@@ -7,7 +7,7 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173", "https://closely-crown-championship-supreme.trycloudflare.com")
+            .WithOrigins("https://closely-crown-championship-supreme.trycloudflare.com")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -15,6 +15,8 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 app.UseCors();
+
+app.MapGet("/ping", () => { return Results.Ok("pong"); });
 
 app.MapPost("/livekit/token", (TokenRequest request) =>
 {
