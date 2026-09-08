@@ -82,14 +82,15 @@ export default function SharePage() {
       await room.connect(data.serverUrl, data.token);
 
       const tracks = await createLocalScreenTracks({
-        audio: false,
+        audio: true,
       });
 
       tracksRef.current = tracks;
 
       for (const track of tracks) {
         await room.localParticipant.publishTrack(track, {
-          source: Track.Source.ScreenShare,
+          source:
+            track.kind === Track.Kind.Video ? Track.Source.ScreenShare : Track.Source.ScreenShareAudio,
         });
       }
 

@@ -29,7 +29,8 @@ dist-ssr
 *.sw?
 
 # dotenv files
-.env
+.env.development
+.env.production
 
 # User-specific files
 *.rsuser

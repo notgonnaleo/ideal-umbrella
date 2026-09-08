@@ -7,7 +7,7 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins("https://screenshareapp.duckdns.org")
+            .WithOrigins("http://localhost:5173", "https://screenshareapp.duckdns.org/")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
