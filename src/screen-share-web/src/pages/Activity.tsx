@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LiveKitRoom,
   VideoTrack,
@@ -11,160 +11,166 @@ const API_URL = import.meta.env.VITE_MAPPED_API_URL;
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL;
 const LIVEKIT_MAPPED_PATH = import.meta.env.VITE_MAPPED_LIVEKIT_URL;
 
-function mapServerUrl(rawServerUrl: string) {
+function mapServerUrl(rawServerUrl: string): string {
   if (rawServerUrl.includes(LIVEKIT_URL)) {
     return `wss://${window.location.host}${LIVEKIT_MAPPED_PATH}`;
   }
+
   return rawServerUrl;
 }
 
 export default function ActivityPage() {
-  const [roomInput, setRoomInput] = useState("");
   const [token, setToken] = useState("");
   const [serverUrl, setServerUrl] = useState("");
   const [error, setError] = useState("");
-  const [joined, setJoined] = useState(false);
-  const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  function log(msg: string) {
-    setDebugLog((prev) => [...prev, `${new Date().toLocaleTimeString()} — ${msg}`]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function connectToActiveSession(): Promise<void> {
+      try {
+        setError("");
+
+        const sessionResponse = await fetch(
+          `${API_URL}/livekit/session`
+        );
+
+        if (sessionResponse.status === 404) {
+          if (!cancelled) {
+            setError("Nenhuma tela está sendo compartilhada.");
+          }
+
+          return;
+        }
+
+        if (!sessionResponse.ok) {
+          throw new Error(
+            `Session API ${sessionResponse.status}: ${await sessionResponse.text()}`
+          );
+        }
+
+        const sessionData: {
+          roomName: string;
+        } = await sessionResponse.json();
+
+        const tokenResponse = await fetch(
+          `${API_URL}/livekit/token`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              roomName: sessionData.roomName,
+              identity: `viewer-${crypto.randomUUID()}`,
+            }),
+          }
+        );
+
+        if (!tokenResponse.ok) {
+          throw new Error(
+            `Token API ${tokenResponse.status}: ${await tokenResponse.text()}`
+          );
+        }
+
+        const data: {
+          token: string;
+          serverUrl: string;
+        } = await tokenResponse.json();
+
+        if (cancelled) {
+          return;
+        }
+
+        setToken(data.token);
+        setServerUrl(mapServerUrl(data.serverUrl));
+      } catch (err: unknown) {
+        if (cancelled) {
+          return;
+        }
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : String(err)
+        );
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void connectToActiveSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          width: "100%",
+          height: "100dvh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#111",
+          color: "#aaa",
+          fontFamily: "sans-serif",
+        }}
+      >
+        Conectando...
+      </div>
+    );
   }
 
-  async function joinRoom() {
-    try {
-      setError("");
-      log(`Solicitando token para sala "${roomInput.trim()}"...`);
-
-      const response = await fetch(`${API_URL}/livekit/token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomName: roomInput.trim(),
-          identity: `viewer-${crypto.randomUUID()}`,
-        }),
-      });
-
-      log(`Resposta do token: status ${response.status}`);
-
-      if (!response.ok) {
-        throw new Error(`Token API ${response.status}: ${await response.text()}`);
-      }
-
-      const data = await response.json();
-      log(`serverUrl original: ${data.serverUrl}`);
-
-      const mapped = mapServerUrl(data.serverUrl);
-      log(`serverUrl usado: ${mapped}`);
-
-      setToken(data.token);
-      setServerUrl(mapped);
-      setJoined(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      log(`ERRO: ${message}`);
-    }
+  if (error) {
+    return (
+      <div
+        style={{
+          width: "100%",
+          height: "100dvh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#111",
+          color: "#aaa",
+          fontFamily: "sans-serif",
+        }}
+      >
+        {error}
+      </div>
+    );
   }
 
   return (
     <div
       style={{
-      width: "100%",
-      height: "100dvh",
-      minWidth: 0,
-      minHeight: 0,
-      display: "flex",
-      flexDirection: "column",
-      overflow: "hidden",
-      background: "#111",
-      color: "white",
-      fontFamily: "sans-serif",
-      boxSizing: "border-box",
-    }}
+        width: "100%",
+        height: "100dvh",
+        minWidth: 0,
+        minHeight: 0,
+        overflow: "hidden",
+        background: "#111",
+      }}
     >
-      {!joined ? (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-          }}
-        >
-          <input
-            value={roomInput}
-            onChange={(e) => setRoomInput(e.target.value)}
-            placeholder="Código da sala"
-            style={{ padding: 10, fontSize: 16 }}
-          />
-          <button onClick={joinRoom} disabled={!roomInput.trim()} style={{ padding: "10px 20px" }}>
-            Entrar
-          </button>
-        </div>
-      ) : (
-        <div style={{ padding: 8, fontSize: 13, background: "#222" }}>
-          Sala: <strong>{roomInput.trim()}</strong> — server: {serverUrl}
-        </div>
-      )}
-
-      {joined && (
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            minHeight: 0,
-            overflow: "hidden",
-          }}
-        >
-          <LiveKitRoom
-            token={token}
-            serverUrl={serverUrl}
-            connect
-            audio={false}
-            video={false}
-            style={{ width: "100%", height: "100%" }}
-            onDisconnected={(reason) => log(`Desconectado: ${reason ?? "sem motivo"}`)}
-            onError={(err) => log(`LiveKitRoom erro: ${err.message}`)}
-          >
-            <ScreenShares />
-          </LiveKitRoom>
-        </div>
-      )}
-
-      {error && (
-        <pre
-          style={{
-            color: "#f66",
-            whiteSpace: "pre-wrap",
-            fontSize: 12,
-            padding: 8,
-            background: "#300",
-            margin: 0,
-          }}
-        >
-          ❌ {error}
-        </pre>
-      )}
-
-      <details style={{ fontSize: 11, background: "#000" }}>
-        <summary style={{ cursor: "pointer", padding: 6, color: "#888" }}>
-          Debug ({debugLog.length})
-        </summary>
-        <pre
-          style={{
-            whiteSpace: "pre-wrap",
-            color: "#0f0",
-            padding: 8,
-            maxHeight: 150,
-            overflowY: "auto",
-            margin: 0,
-          }}
-        >
-          {debugLog.join("\n") || "Nenhum evento ainda."}
-        </pre>
-      </details>
+      <LiveKitRoom
+        token={token}
+        serverUrl={serverUrl}
+        connect
+        audio={false}
+        video={false}
+        style={{
+          width: "100%",
+          height: "100%",
+        }}
+      >
+        <ScreenShares />
+      </LiveKitRoom>
     </div>
   );
 }

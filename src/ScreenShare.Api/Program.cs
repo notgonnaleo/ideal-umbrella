@@ -7,7 +7,9 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173", "https://screenshareapp.duckdns.org")
+            .WithOrigins(
+                "http://localhost:5173",
+                "https://screenshareapp.duckdns.org")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -16,7 +18,52 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 app.UseCors();
 
-app.MapGet("/ping", () => { return Results.Ok("pong"); });
+var apiKey = builder.Configuration["LIVEKIT_API_KEY"];
+var apiSecret = builder.Configuration["LIVEKIT_API_SECRET"];
+var serverUrl = builder.Configuration["LIVEKIT_URL"];
+
+if (string.IsNullOrWhiteSpace(apiKey) ||
+    string.IsNullOrWhiteSpace(apiSecret) ||
+    string.IsNullOrWhiteSpace(serverUrl))
+{
+    throw new InvalidOperationException(
+        "LiveKit credentials are not configured.");
+}
+
+string? activeRoomName = null;
+
+app.MapGet("/ping", () => Results.Ok("pong"));
+
+app.MapPost("/livekit/session/start", () =>
+{
+    if (activeRoomName is null)
+    {
+        activeRoomName = $"screenshare-{Guid.NewGuid():N}";
+    }
+
+    return Results.Ok(new
+    {
+        roomName = activeRoomName
+    });
+});
+
+app.MapGet("/livekit/session", () =>
+{
+    if (activeRoomName is null)
+        return Results.NotFound();
+
+    return Results.Ok(new
+    {
+        roomName = activeRoomName
+    });
+});
+
+app.MapPost("/livekit/session/stop", () =>
+{
+    activeRoomName = null;
+
+    return Results.Ok();
+});
 
 app.MapPost("/livekit/token", (TokenRequest request) =>
 {
@@ -25,17 +72,6 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
 
     if (string.IsNullOrWhiteSpace(request.Identity))
         return Results.BadRequest("Identity is required.");
-
-    var apiKey = builder.Configuration["LIVEKIT_API_KEY"];
-    var apiSecret = builder.Configuration["LIVEKIT_API_SECRET"];
-    var serverUrl = builder.Configuration["LIVEKIT_URL"];
-
-    if (string.IsNullOrWhiteSpace(apiKey) ||
-        string.IsNullOrWhiteSpace(apiSecret) ||
-        string.IsNullOrWhiteSpace(serverUrl))
-    {
-        return Results.Problem("LiveKit credentials are not configured.");
-    }
 
     var token = new AccessToken(apiKey, apiSecret)
         .WithIdentity(request.Identity)
