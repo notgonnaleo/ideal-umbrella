@@ -69,8 +69,6 @@ export default function ActivityPage() {
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
         display: "flex",
         flexDirection: "column",
         background: "#111",
