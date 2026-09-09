@@ -69,12 +69,18 @@ export default function ActivityPage() {
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        background: "#111",
-        color: "white",
-        fontFamily: "sans-serif",
-      }}
+      width: "100%",
+      height: "100dvh",
+      minWidth: 0,
+      minHeight: 0,
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+      background: "#111",
+      color: "white",
+      fontFamily: "sans-serif",
+      boxSizing: "border-box",
+    }}
     >
       {!joined ? (
         <div
@@ -104,7 +110,14 @@ export default function ActivityPage() {
       )}
 
       {joined && (
-        <div style={{ flex: 1, minHeight: 0 }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            overflow: "hidden",
+          }}
+        >
           <LiveKitRoom
             token={token}
             serverUrl={serverUrl}
@@ -157,20 +170,29 @@ export default function ActivityPage() {
 }
 
 function ScreenShares() {
-  const tracks = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }]);
+  const tracks = useTracks([
+    {
+      source: Track.Source.ScreenShare,
+      withPlaceholder: false,
+    },
+  ]);
+
   const screenShares = tracks.filter(isTrackReference);
 
   return (
     <div
       style={{
-        minWidth: 0, 
-        minHeight: 0, 
-        overflow: "hidden",
         width: "100%",
         height: "100%",
+        minWidth: 0,
+        minHeight: 0,
+        overflow: "hidden",
         background: "#111",
         display: "grid",
-        gridTemplateColumns: screenShares.length <= 1 ? "1fr" : "repeat(2, minmax(0, 1fr))",
+        gridTemplateColumns:
+          screenShares.length <= 1
+            ? "minmax(0, 1fr)"
+            : "repeat(2, minmax(0, 1fr))",
         gridAutoRows: "minmax(0, 1fr)",
         gap: 8,
         padding: 8,
@@ -197,14 +219,25 @@ function ScreenShares() {
             key={`${track.participant.identity}-${track.publication?.trackSid}`}
             style={{
               position: "relative",
+              width: "100%",
+              height: "100%",
               minWidth: 0,
               minHeight: 0,
+              overflow: "hidden",
               background: "#000",
               borderRadius: 8,
-              overflow: "hidden",
             }}
           >
-            <VideoTrack trackRef={track} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            <VideoTrack
+              trackRef={track}
+              style={{
+                display: "block",
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+              }}
+            />
+
             <div
               style={{
                 position: "absolute",
