@@ -9,7 +9,6 @@ import {
 } from "@livekit/components-core";
 import { Track } from "livekit-client";
 import {
-  getDiscordInstanceId,
   initializeDiscord,
 } from "../services/discord";
 
@@ -29,9 +28,7 @@ function ScreenShares() {
 
   if (screenShares.length === 0) {
     return (
-      <p>
-        Ninguém está compartilhando a tela.
-      </p>
+      <p>Ninguém está compartilhando a tela.</p>
     );
   }
 
@@ -43,6 +40,7 @@ function ScreenShares() {
           "repeat(auto-fit, minmax(320px, 1fr))",
         gap: "16px",
         width: "100%",
+        height: "100%",
       }}
     >
       {screenShares.map((track) => (
@@ -74,35 +72,41 @@ export default function ActivityPage() {
       try {
         setError(null);
 
-        await initializeDiscord();
+        const context = await initializeDiscord();
 
-        const instanceId = getDiscordInstanceId();
-
-        if (!instanceId) {
+        if (!context) {
           throw new Error(
-            "Discord Activity instance ID was not found."
+            "This page must be opened inside Discord."
           );
         }
 
-        const sessionResponse = await fetch(
+        /*
+         * The first participant is the sharer.
+         * Everyone else is a viewer.
+         */
+        if (context.isFirstParticipant) {
+          return;
+        }
+
+        const response = await fetch(
           `${API_URL}/livekit/session?instanceId=${encodeURIComponent(
-            instanceId
+            context.instanceId
           )}`
         );
 
-        if (sessionResponse.status === 404) {
+        if (response.status === 404) {
           throw new Error(
-            "Ninguém está compartilhando a tela nesta Activity."
+            "No screen sharing session exists."
           );
         }
 
-        if (!sessionResponse.ok) {
+        if (!response.ok) {
           throw new Error(
             "Failed to get screen sharing session."
           );
         }
 
-        const session = await sessionResponse.json();
+        const session = await response.json();
 
         const tokenResponse = await fetch(
           `${API_URL}/livekit/token`,

@@ -21,23 +21,25 @@ var app = builder.Build();
 
 app.UseCors();
 
-var sessions = new ConcurrentDictionary<string, string>();
+var sessions = new ConcurrentDictionary<string, Session>();
 
 app.MapGet("/ping", () => Results.Ok("pong"));
 
-app.MapPost("/livekit/session/start", (SessionRequest request) =>
+app.MapPost("/livekit/session", (SessionRequest request) =>
 {
     if (string.IsNullOrWhiteSpace(request.InstanceId))
         return Results.BadRequest("InstanceId is required.");
 
-    var roomName = sessions.GetOrAdd(
+    var session = sessions.GetOrAdd(
         request.InstanceId,
-        _ => $"screenshare-{Guid.NewGuid():N}"
+        _ => new Session(
+            $"screenshare-{Guid.NewGuid():N}"
+        )
     );
 
     return Results.Ok(new
     {
-        roomName
+        roomName = session.RoomName
     });
 });
 
@@ -46,15 +48,17 @@ app.MapGet("/livekit/session", (string instanceId) =>
     if (string.IsNullOrWhiteSpace(instanceId))
         return Results.BadRequest("InstanceId is required.");
 
-    if (!sessions.TryGetValue(instanceId, out var roomName))
+    if (!sessions.TryGetValue(instanceId, out var session))
+    {
         return Results.NotFound(new
         {
             message = "No active screen sharing session."
         });
+    }
 
     return Results.Ok(new
     {
-        roomName
+        roomName = session.RoomName
     });
 });
 
@@ -96,6 +100,10 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
 });
 
 app.Run();
+
+public record Session(
+    string RoomName
+);
 
 public record SessionRequest(
     string InstanceId

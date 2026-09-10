@@ -1,56 +1,59 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  createLocalScreenTracks,
-  LocalTrack,
   Room,
+  LocalVideoTrack,
+  LocalAudioTrack,
   Track,
 } from "livekit-client";
 import {
-  getDiscordInstanceId,
   initializeDiscord,
+  type DiscordActivityContext,
 } from "../services/discord";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function SharePage() {
   const roomRef = useRef<Room | null>(null);
-  const tracksRef = useRef<LocalTrack[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
-    initializeDiscord().catch((err) => {
-      console.error(err);
-      setError("Failed to initialize Discord.");
-    });
+    start();
 
     return () => {
-      stopSharing();
+      cleanup();
     };
   }, []);
 
-  async function startSharing() {
+  async function start() {
     try {
       setError(null);
 
-      const instanceId = getDiscordInstanceId();
+      const context = await initializeDiscord();
 
-      if (!instanceId) {
+      if (!context) {
         throw new Error(
-          "Discord Activity instance ID was not found."
+          "This page must be opened inside Discord."
+        );
+      }
+
+      if (!context.isFirstParticipant) {
+        throw new Error(
+          "This Activity is already running."
         );
       }
 
       const sessionResponse = await fetch(
-        `${API_URL}/livekit/session/start`,
+        `${API_URL}/livekit/session`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            instanceId,
+            instanceId: context.instanceId,
           }),
         }
       );
@@ -62,6 +65,21 @@ export default function SharePage() {
       }
 
       const session = await sessionResponse.json();
+
+      /*
+       * This must happen from the Activity's user activation.
+       * The user sees the native browser screen picker here.
+       */
+      const stream =
+        await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true,
+        });
+
+      streamRef.current = stream;
+
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
 
       const tokenResponse = await fetch(
         `${API_URL}/livekit/token`,
@@ -83,28 +101,45 @@ export default function SharePage() {
         );
       }
 
-      const { token, serverUrl } =
-        await tokenResponse.json();
+      const {
+        token,
+        serverUrl,
+      } = await tokenResponse.json();
 
       const room = new Room();
 
       await room.connect(serverUrl, token);
 
-      const tracks = await createLocalScreenTracks({
-        audio: true,
-      });
+      const localVideoTrack =
+        new LocalVideoTrack(videoTrack);
 
-      for (const track of tracks) {
-        await room.localParticipant.publishTrack(track, {
-          source:
-            track.kind === "video"
-              ? Track.Source.ScreenShare
-              : Track.Source.ScreenShareAudio,
-        });
+      await room.localParticipant.publishTrack(
+        localVideoTrack,
+        {
+          source: Track.Source.ScreenShare,
+        }
+      );
+
+      if (audioTrack) {
+        const localAudioTrack =
+          new LocalAudioTrack(audioTrack);
+
+        await room.localParticipant.publishTrack(
+          localAudioTrack,
+          {
+            source: Track.Source.ScreenShareAudio,
+          }
+        );
       }
 
+      videoTrack.addEventListener(
+        "ended",
+        () => {
+          stopSharing();
+        }
+      );
+
       roomRef.current = room;
-      tracksRef.current = tracks;
 
       setSharing(true);
     } catch (err) {
@@ -122,44 +157,56 @@ export default function SharePage() {
     const room = roomRef.current;
 
     if (room) {
-      for (const track of tracksRef.current) {
-        try {
-          room.localParticipant.unpublishTrack(track);
-        } catch {
-          // Ignore already unpublished tracks.
-        }
+      room.disconnect();
+      roomRef.current = null;
+    }
 
+    const stream = streamRef.current;
+
+    if (stream) {
+      for (const track of stream.getTracks()) {
         track.stop();
       }
 
-      tracksRef.current = [];
-
-      room.disconnect();
-
-      roomRef.current = null;
+      streamRef.current = null;
     }
 
     setSharing(false);
   }
 
+  function cleanup() {
+    const room = roomRef.current;
+
+    if (room) {
+      room.disconnect();
+      roomRef.current = null;
+    }
+
+    const stream = streamRef.current;
+
+    if (stream) {
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+
+      streamRef.current = null;
+    }
+  }
+
+  if (error) {
+    return (
+      <main>
+        <p>{error}</p>
+      </main>
+    );
+  }
+
   return (
     <main>
-      <h1>Screen Share</h1>
-
-      {error && (
-        <p>
-          {error}
-        </p>
-      )}
-
-      {!sharing ? (
-        <button onClick={startSharing}>
-          Compartilhar tela
-        </button>
+      {sharing ? (
+        <p>Compartilhando sua tela.</p>
       ) : (
-        <button onClick={stopSharing}>
-          Parar compartilhamento
-        </button>
+        <p>Escolha a tela que deseja compartilhar.</p>
       )}
     </main>
   );
