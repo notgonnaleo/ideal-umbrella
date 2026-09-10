@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Livekit.Server.Sdk.Dotnet;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,59 +7,16 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy
-            .WithOrigins(
-                "http://localhost:5173",
-                "https://screenshareapp.duckdns.org"
-            )
+            .WithOrigins("http://localhost:5173", "https://screenshareapp.duckdns.org")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
-
 app.UseCors();
 
-var sessions = new ConcurrentDictionary<string, Session>();
-
-app.MapGet("/ping", () => Results.Ok("pong"));
-
-app.MapPost("/livekit/session", (SessionRequest request) =>
-{
-    if (string.IsNullOrWhiteSpace(request.InstanceId))
-        return Results.BadRequest("InstanceId is required.");
-
-    var session = sessions.GetOrAdd(
-        request.InstanceId,
-        _ => new Session(
-            $"screenshare-{Guid.NewGuid():N}"
-        )
-    );
-
-    return Results.Ok(new
-    {
-        roomName = session.RoomName
-    });
-});
-
-app.MapGet("/livekit/session", (string instanceId) =>
-{
-    if (string.IsNullOrWhiteSpace(instanceId))
-        return Results.BadRequest("InstanceId is required.");
-
-    if (!sessions.TryGetValue(instanceId, out var session))
-    {
-        return Results.NotFound(new
-        {
-            message = "No active screen sharing session."
-        });
-    }
-
-    return Results.Ok(new
-    {
-        roomName = session.RoomName
-    });
-});
+app.MapGet("/ping", () => { return Results.Ok("pong"); });
 
 app.MapPost("/livekit/token", (TokenRequest request) =>
 {
@@ -78,9 +34,7 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
         string.IsNullOrWhiteSpace(apiSecret) ||
         string.IsNullOrWhiteSpace(serverUrl))
     {
-        return Results.Problem(
-            "LiveKit credentials are not configured."
-        );
+        return Results.Problem("LiveKit credentials are not configured.");
     }
 
     var token = new AccessToken(apiKey, apiSecret)
@@ -100,14 +54,6 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
 });
 
 app.Run();
-
-public record Session(
-    string RoomName
-);
-
-public record SessionRequest(
-    string InstanceId
-);
 
 public record TokenRequest(
     string RoomName,
