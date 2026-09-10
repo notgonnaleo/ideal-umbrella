@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Livekit.Server.Sdk.Dotnet;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,60 +10,52 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(
                 "http://localhost:5173",
-                "https://screenshareapp.duckdns.org")
+                "https://screenshareapp.duckdns.org"
+            )
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
+
 app.UseCors();
 
-var apiKey = builder.Configuration["LIVEKIT_API_KEY"];
-var apiSecret = builder.Configuration["LIVEKIT_API_SECRET"];
-var serverUrl = builder.Configuration["LIVEKIT_URL"];
-
-if (string.IsNullOrWhiteSpace(apiKey) ||
-    string.IsNullOrWhiteSpace(apiSecret) ||
-    string.IsNullOrWhiteSpace(serverUrl))
-{
-    throw new InvalidOperationException(
-        "LiveKit credentials are not configured.");
-}
-
-string? activeRoomName = null;
+var sessions = new ConcurrentDictionary<string, string>();
 
 app.MapGet("/ping", () => Results.Ok("pong"));
 
-app.MapPost("/livekit/session/start", () =>
+app.MapPost("/livekit/session/start", (SessionRequest request) =>
 {
-    if (activeRoomName is null)
-    {
-        activeRoomName = $"screenshare-{Guid.NewGuid():N}";
-    }
+    if (string.IsNullOrWhiteSpace(request.InstanceId))
+        return Results.BadRequest("InstanceId is required.");
+
+    var roomName = sessions.GetOrAdd(
+        request.InstanceId,
+        _ => $"screenshare-{Guid.NewGuid():N}"
+    );
 
     return Results.Ok(new
     {
-        roomName = activeRoomName
+        roomName
     });
 });
 
-app.MapGet("/livekit/session", () =>
+app.MapGet("/livekit/session", (string instanceId) =>
 {
-    if (activeRoomName is null)
-        return Results.NotFound();
+    if (string.IsNullOrWhiteSpace(instanceId))
+        return Results.BadRequest("InstanceId is required.");
+
+    if (!sessions.TryGetValue(instanceId, out var roomName))
+        return Results.NotFound(new
+        {
+            message = "No active screen sharing session."
+        });
 
     return Results.Ok(new
     {
-        roomName = activeRoomName
+        roomName
     });
-});
-
-app.MapPost("/livekit/session/stop", () =>
-{
-    activeRoomName = null;
-
-    return Results.Ok();
 });
 
 app.MapPost("/livekit/token", (TokenRequest request) =>
@@ -72,6 +65,19 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
 
     if (string.IsNullOrWhiteSpace(request.Identity))
         return Results.BadRequest("Identity is required.");
+
+    var apiKey = builder.Configuration["LIVEKIT_API_KEY"];
+    var apiSecret = builder.Configuration["LIVEKIT_API_SECRET"];
+    var serverUrl = builder.Configuration["LIVEKIT_URL"];
+
+    if (string.IsNullOrWhiteSpace(apiKey) ||
+        string.IsNullOrWhiteSpace(apiSecret) ||
+        string.IsNullOrWhiteSpace(serverUrl))
+    {
+        return Results.Problem(
+            "LiveKit credentials are not configured."
+        );
+    }
 
     var token = new AccessToken(apiKey, apiSecret)
         .WithIdentity(request.Identity)
@@ -90,6 +96,10 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
 });
 
 app.Run();
+
+public record SessionRequest(
+    string InstanceId
+);
 
 public record TokenRequest(
     string RoomName,

@@ -1,188 +1,166 @@
 import { useEffect, useRef, useState } from "react";
 import {
   createLocalScreenTracks,
+  LocalTrack,
   Room,
   Track,
-  type LocalTrack,
 } from "livekit-client";
+import {
+  getDiscordInstanceId,
+  initializeDiscord,
+} from "../services/discord";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
 export default function SharePage() {
-  const [sharing, setSharing] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
-
   const roomRef = useRef<Room | null>(null);
   const tracksRef = useRef<LocalTrack[]>([]);
-  const roomNameRef = useRef<string | null>(null);
 
-  async function stopSharing(): Promise<void> {
-    const room = roomRef.current;
-    const tracks = [...tracksRef.current];
-    const roomName = roomNameRef.current;
+  const [sharing, setSharing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-    roomRef.current = null;
-    tracksRef.current = [];
-    roomNameRef.current = null;
+  useEffect(() => {
+    initializeDiscord().catch((err) => {
+      console.error(err);
+      setError("Failed to initialize Discord.");
+    });
 
-    for (const track of tracks) {
-      try {
-        if (room) {
-          await room.localParticipant.unpublishTrack(track);
-        }
-      } catch (err) {
-        console.warn("Failed to unpublish screen track:", err);
-      }
+    return () => {
+      stopSharing();
+    };
+  }, []);
 
-      track.stop();
-    }
-
-    if (room) {
-      try {
-        await room.disconnect();
-      } catch (err) {
-        console.warn("Failed to disconnect LiveKit room:", err);
-      }
-    }
-
-    if (roomName) {
-      try {
-        await fetch(`${API_URL}/livekit/session/stop`, {
-          method: "POST",
-        });
-      } catch (err) {
-        console.warn("Failed to stop screen share session:", err);
-      }
-    }
-
-    setSharing(false);
-  }
-
-  async function startSharing(): Promise<void> {
+  async function startSharing() {
     try {
-      setError("");
+      setError(null);
+
+      const instanceId = getDiscordInstanceId();
+
+      if (!instanceId) {
+        throw new Error(
+          "Discord Activity instance ID was not found."
+        );
+      }
 
       const sessionResponse = await fetch(
         `${API_URL}/livekit/session/start`,
         {
           method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            instanceId,
+          }),
         }
       );
 
       if (!sessionResponse.ok) {
         throw new Error(
-          `Session API ${sessionResponse.status}: ${await sessionResponse.text()}`
+          "Failed to create screen sharing session."
         );
       }
 
-      const sessionData: {
-        roomName: string;
-      } = await sessionResponse.json();
+      const session = await sessionResponse.json();
 
-      roomNameRef.current = sessionData.roomName;
-
-      const tokenResponse = await fetch(`${API_URL}/livekit/token`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          roomName: sessionData.roomName,
-          identity: `screen-share-${crypto.randomUUID()}`,
-        }),
-      });
+      const tokenResponse = await fetch(
+        `${API_URL}/livekit/token`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            roomName: session.roomName,
+            identity: `screen-share-${crypto.randomUUID()}`,
+          }),
+        }
+      );
 
       if (!tokenResponse.ok) {
         throw new Error(
-          `Token API ${tokenResponse.status}: ${await tokenResponse.text()}`
+          "Failed to create LiveKit token."
         );
       }
 
-      const data: {
-        serverUrl: string;
-        token: string;
-      } = await tokenResponse.json();
+      const { token, serverUrl } =
+        await tokenResponse.json();
 
       const room = new Room();
-      roomRef.current = room;
 
-      await room.connect(data.serverUrl, data.token);
+      await room.connect(serverUrl, token);
 
       const tracks = await createLocalScreenTracks({
         audio: true,
       });
 
-      tracksRef.current = tracks;
-
       for (const track of tracks) {
         await room.localParticipant.publishTrack(track, {
           source:
-            track.kind === Track.Kind.Video
+            track.kind === "video"
               ? Track.Source.ScreenShare
               : Track.Source.ScreenShareAudio,
         });
       }
 
+      roomRef.current = room;
+      tracksRef.current = tracks;
+
       setSharing(true);
-    } catch (err: unknown) {
+    } catch (err) {
+      console.error(err);
+
       setError(
         err instanceof Error
           ? err.message
-          : String(err)
+          : "Failed to start screen sharing."
       );
-
-      await stopSharing();
     }
   }
 
-  useEffect(() => {
-    return () => {
-      void stopSharing();
-    };
-  }, []);
+  async function stopSharing() {
+    const room = roomRef.current;
+
+    if (room) {
+      for (const track of tracksRef.current) {
+        try {
+          room.localParticipant.unpublishTrack(track);
+        } catch {
+          // Ignore already unpublished tracks.
+        }
+
+        track.stop();
+      }
+
+      tracksRef.current = [];
+
+      room.disconnect();
+
+      roomRef.current = null;
+    }
+
+    setSharing(false);
+  }
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 40 }}>
+    <main>
       <h1>Screen Share</h1>
 
+      {error && (
+        <p>
+          {error}
+        </p>
+      )}
+
       {!sharing ? (
-        <button
-          onClick={() => void startSharing()}
-          style={{
-            padding: "12px 20px",
-            cursor: "pointer",
-          }}
-        >
+        <button onClick={startSharing}>
           Compartilhar tela
         </button>
       ) : (
-        <>
-          <p>
-            Tela sendo compartilhada.
-          </p>
-
-          <button
-            onClick={() => void stopSharing()}
-            style={{
-              padding: "12px 20px",
-              cursor: "pointer",
-            }}
-          >
-            Parar compartilhamento
-          </button>
-        </>
+        <button onClick={stopSharing}>
+          Parar compartilhamento
+        </button>
       )}
-
-      {error && (
-        <pre
-          style={{
-            color: "red",
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {error}
-        </pre>
-      )}
-    </div>
+    </main>
   );
 }
