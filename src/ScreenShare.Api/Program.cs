@@ -1,4 +1,7 @@
 using Livekit.Server.Sdk.Dotnet;
+using Dapper;
+using Npgsql;
+using ScreenShare.Api.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -55,7 +58,3 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
 
 app.Run();
 
-public record TokenRequest(
-    string RoomName,
-    string Identity
-);
