@@ -7,12 +7,14 @@ import {
 import { isTrackReference } from "@livekit/components-core";
 import type { TrackReference } from "@livekit/components-core";
 import { RemoteTrackPublication, Track } from "livekit-client";
+import { DiscordSDK } from "@discord/embedded-app-sdk";
 
 const API_URL = import.meta.env.VITE_MAPPED_API_URL;
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL;
 const LIVEKIT_MAPPED_PATH = import.meta.env.VITE_MAPPED_LIVEKIT_URL;
 // Public URL of the external share page (opened outside Discord)
 const SHARE_PAGE_URL = import.meta.env.VITE_SHARE_PAGE_URL;
+const DISCORD_CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID;
 
 function mapServerUrl(rawServerUrl: string) {
   if (rawServerUrl.includes(LIVEKIT_URL)) {
@@ -21,19 +23,22 @@ function mapServerUrl(rawServerUrl: string) {
   return rawServerUrl;
 }
 
-type Props = {
-  userName?: string;
-  // Wire this to discordSdk.commands.openExternalLink({ url }) inside the Activity.
-  openExternalLink?: (url: string) => Promise<unknown> | void;
-};
-
-export default function ActivityPage({ userName, openExternalLink }: Props) {
+export default function ActivityPage() {
   const [roomInput, setRoomInput] = useState("");
   const [token, setToken] = useState("");
   const [serverUrl, setServerUrl] = useState("");
   const [error, setError] = useState("");
   const [joined, setJoined] = useState(false);
   const [debugLog, setDebugLog] = useState<string[]>([]);
+
+  // "loading" while checking for Discord, "discord" = auto room, "web" = manual room input
+  const [mode, setMode] = useState<"loading" | "discord" | "web">("loading");
+  const [activityRoom, setActivityRoom] = useState<string | null>(null);
+  const sdkRef = useRef<DiscordSDK | null>(null);
+  const didInit = useRef(false);
+
+  const autoRoom = activityRoom;
+  const roomName = autoRoom ?? roomInput.trim();
 
   // Stable id for this Activity instance; the external share page derives the
   // sharer identity from it so we can recognise "my" share and auto-select it.
@@ -44,18 +49,17 @@ export default function ActivityPage({ userName, openExternalLink }: Props) {
     setDebugLog((prev) => [...prev, `${new Date().toLocaleTimeString()} — ${msg}`]);
   }
 
-  async function joinRoom() {
+  async function joinRoom(room: string = roomName) {
     try {
       setError("");
-      log(`Solicitando token para sala "${roomInput.trim()}"...`);
+      log(`Solicitando token para sala "${room}"...`);
 
       const response = await fetch(`${API_URL}/livekit/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          roomName: roomInput.trim(),
+          roomName: room,
           identity: `viewer-${sessionId}`,
-          name: userName,
           role: "viewer",
         }),
       });
@@ -79,17 +83,53 @@ export default function ActivityPage({ userName, openExternalLink }: Props) {
     }
   }
 
+  // Detect Discord, init the SDK, and auto-join the room for this Activity instance
+  useEffect(() => {
+    if (didInit.current) return; // guards against React StrictMode double-run
+    didInit.current = true;
+
+    (async () => {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has("frame_id")) {
+        log("Rodando fora do Discord");
+        setMode("web");
+        return;
+      }
+      try {
+        const sdk = new DiscordSDK(DISCORD_CLIENT_ID);
+        await sdk.ready();
+        sdkRef.current = sdk;
+        log(`Discord pronto. Instance ID: ${sdk.instanceId}`);
+
+        const room = `activity-${sdk.instanceId}`;
+        setActivityRoom(room);
+        setMode("discord");
+        await joinRoom(room);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        log(`ERRO Discord: ${message}`);
+        setMode("web");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function openExternalLink(url: string) {
+    if (sdkRef.current) await sdkRef.current.commands.openExternalLink({ url });
+    else window.open(url, "_blank", "noopener");
+  }
+
   async function startSharing() {
     const params = new URLSearchParams({
-      room: roomInput.trim(),
+      room: roomName,
       identity: myShareIdentity,
-      name: userName ?? "Usuário",
+      name: "Usuário",
     });
     const url = `${SHARE_PAGE_URL}?${params.toString()}`;
     log(`Abrindo página de compartilhamento: ${url}`);
     try {
-      if (openExternalLink) await openExternalLink(url);
-      else window.open(url, "_blank", "noopener");
+      await openExternalLink(url);
     } catch (err) {
       log(`ERRO ao abrir link externo: ${String(err)}`);
     }
@@ -112,26 +152,43 @@ export default function ActivityPage({ userName, openExternalLink }: Props) {
       }}
     >
       {!joined ? (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-          }}
-        >
-          <input
-            value={roomInput}
-            onChange={(e) => setRoomInput(e.target.value)}
-            placeholder="Código da sala"
-            style={{ padding: 10, fontSize: 16 }}
-          />
-          <button onClick={joinRoom} disabled={!roomInput.trim()} style={{ padding: "10px 20px" }}>
-            Entrar
-          </button>
-        </div>
+        mode !== "web" ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            Conectando...
+          </div>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 12,
+            }}
+          >
+            <input
+              value={roomInput}
+              onChange={(e) => setRoomInput(e.target.value)}
+              placeholder="Código da sala"
+              style={{ padding: 10, fontSize: 16 }}
+            />
+            <button
+              onClick={() => joinRoom()}
+              disabled={!roomInput.trim()}
+              style={{ padding: "10px 20px" }}
+            >
+              Entrar
+            </button>
+          </div>
+        )
       ) : (
         <div
           style={{
@@ -145,7 +202,13 @@ export default function ActivityPage({ userName, openExternalLink }: Props) {
           }}
         >
           <span>
-            Sala: <strong>{roomInput.trim()}</strong>
+            {autoRoom ? (
+              "Sala da Activity"
+            ) : (
+              <>
+                Sala: <strong>{roomName}</strong>
+              </>
+            )}
           </span>
           <button onClick={startSharing} style={{ padding: "6px 12px" }}>
             Compartilhar minha tela
