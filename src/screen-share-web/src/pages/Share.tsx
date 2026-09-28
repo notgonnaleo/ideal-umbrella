@@ -1,159 +1,94 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  createLocalScreenTracks,
-  Room,
-  Track,
-  type LocalTrack,
-} from "livekit-client";
+import { Room, RoomEvent, Track } from "livekit-client";
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL; // public API (this page runs outside Discord)
 
-function generateRoomCode(): string {
-  return crypto.randomUUID().slice(0, 8);
-}
+type Status = "idle" | "connecting" | "sharing" | "stopped" | "error";
 
+// Opened in the external browser by the Activity:
+//   /share?room=ROOM&identity=sharer-<sessionId>&name=Alice
 export default function SharePage() {
-  const [roomName] = useState<string>(generateRoomCode);
-  const [sharing, setSharing] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
+  const params = new URLSearchParams(window.location.search);
+  const roomName = params.get("room") ?? "";
+  const identity = params.get("identity") ?? `sharer-${crypto.randomUUID()}`;
+  const name = params.get("name") ?? "Usuário";
 
   const roomRef = useRef<Room | null>(null);
-  const tracksRef = useRef<LocalTrack[]>([]);
+  const [status, setStatus] = useState<Status>("idle");
+  const [error, setError] = useState("");
 
-  async function stopSharing(): Promise<void> {
-    const room = roomRef.current;
-    const tracks = [...tracksRef.current];
-
-    roomRef.current = null;
-    tracksRef.current = [];
-
-    for (const track of tracks) {
-      try {
-        if (room) {
-          await room.localParticipant.unpublishTrack(track);
-        }
-      } catch {
-        console.warn("Failed to unpublish screen track:", error);
-      }
-
-      track.stop();
-    }
-
-    if (room) {
-      try {
-        await room.disconnect();
-      } catch {
-        console.warn("Failed to stop screen track:", error);
-      }
-    }
-
-    setSharing(false);
-  }
-
-  async function startSharing(): Promise<void> {
+  async function start() {
     try {
       setError("");
+      setStatus("connecting");
 
-      const response = await fetch(`${API_URL}/livekit/token`, {
+      const res = await fetch(`${API_URL}/livekit/token`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          roomName,
-          identity: `screen-share-${crypto.randomUUID()}`,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName, identity, name, role: "sharer" }),
       });
-
-      if (!response.ok) {
-        throw new Error(
-          `Token API ${response.status}: ${await response.text()}`
-        );
-      }
-
-      const data: {
-        serverUrl: string;
-        token: string;
-      } = await response.json();
+      if (!res.ok) throw new Error(`Token API ${res.status}: ${await res.text()}`);
+      const { token, serverUrl } = await res.json();
 
       const room = new Room();
       roomRef.current = room;
-
-      await room.connect(data.serverUrl, data.token);
-
-      const tracks = await createLocalScreenTracks({
-        audio: true,
+      room.on(RoomEvent.Disconnected, () => setStatus("stopped"));
+      room.on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        // User clicked the browser's "Stop sharing" button
+        if (pub.source === Track.Source.ScreenShare) room.disconnect();
       });
 
-      tracksRef.current = tracks;
-
-      for (const track of tracks) {
-        await room.localParticipant.publishTrack(track, {
-          source:
-            track.kind === Track.Kind.Video ? Track.Source.ScreenShare : Track.Source.ScreenShareAudio,
-        });
-      }
-
-      setSharing(true);
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : String(err)
-      );
-
-      await stopSharing();
+      await room.connect(serverUrl, token);
+      // Opens the browser's screen picker; the share is now visible to every viewer
+      await room.localParticipant.setScreenShareEnabled(true, { audio: true });
+      setStatus("sharing");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus("error");
+      roomRef.current?.disconnect();
     }
   }
 
-  useEffect(() => {
-    return () => {
-      void stopSharing();
-    };
-  }, []);
+  function stop() {
+    roomRef.current?.disconnect();
+  }
+
+  useEffect(() => () => void roomRef.current?.disconnect(), []);
 
   return (
-    <div style={{ fontFamily: "sans-serif", padding: 40 }}>
-      <h1>Screen Share</h1>
+    <div
+      style={{
+        minHeight: "100dvh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 16,
+        background: "#111",
+        color: "white",
+        fontFamily: "sans-serif",
+        textAlign: "center",
+        padding: 16,
+      }}
+    >
+      <h2>Compartilhar tela — sala {roomName}</h2>
 
-      <p>
-        Room code: <strong>{roomName}</strong>
-      </p>
-
-      {!sharing ? (
-        <button
-          onClick={() => void startSharing()}
-          style={{
-            padding: "12px 20px",
-            cursor: "pointer",
-          }}
-        >
-          🖥️ Compartilhar tela
-        </button>
-      ) : (
-        <button
-          onClick={() => void stopSharing()}
-          style={{
-            padding: "12px 20px",
-            cursor: "pointer",
-          }}
-        >
-          ⛔ Parar compartilhamento
+      {(status === "idle" || status === "error" || status === "stopped") && (
+        <button onClick={start} style={{ padding: "12px 24px", fontSize: 16 }}>
+          {status === "stopped" ? "Compartilhar novamente" : "Selecionar tela"}
         </button>
       )}
-
-      {sharing && (
-        <p>
-          🟢 Tela sendo compartilhada — passe o código acima para quem for
-          assistir
-        </p>
+      {status === "connecting" && <p>Conectando...</p>}
+      {status === "sharing" && (
+        <>
+          <p>✅ Sua tela está sendo compartilhada. Volte ao Discord para vê-la na Activity.</p>
+          <button onClick={stop} style={{ padding: "10px 20px" }}>
+            Parar compartilhamento
+          </button>
+        </>
       )}
-
-      {error && (
-        <pre style={{ color: "red", whiteSpace: "pre-wrap" }}>
-          ❌ {error}
-        </pre>
-      )}
+      {status === "stopped" && <p>Compartilhamento encerrado.</p>}
+      {error && <pre style={{ color: "#f66", whiteSpace: "pre-wrap" }}>❌ {error}</pre>}
     </div>
   );
 }

@@ -9,6 +9,10 @@ import Share from "./pages/Share";
 
 const router = createBrowserRouter([
   {
+    path: "/getting-started",
+    Component: Landing,
+  },
+  {
     path: "/",
     Component: Landing,
   },
