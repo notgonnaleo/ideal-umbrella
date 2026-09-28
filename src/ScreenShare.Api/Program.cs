@@ -40,12 +40,21 @@ app.MapPost("/livekit/token", (TokenRequest request) =>
         return Results.Problem("LiveKit credentials are not configured.");
     }
 
+    var isSharer = string.Equals(request.Role, "sharer", StringComparison.OrdinalIgnoreCase);
+
     var token = new AccessToken(apiKey, apiSecret)
         .WithIdentity(request.Identity)
+        .WithName(string.IsNullOrWhiteSpace(request.Name) ? request.Identity : request.Name)
         .WithGrants(new VideoGrants
         {
             RoomJoin = true,
-            Room = request.RoomName
+            Room = request.RoomName,
+            CanSubscribe = true,
+            CanPublish = isSharer,
+            CanPublishData = false,
+            CanPublishSources = isSharer
+                ? new List<string> { "screen_share", "screen_share_audio" }
+                : new List<string>()
         })
         .WithTtl(TimeSpan.FromHours(1));
 

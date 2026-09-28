@@ -9,11 +9,11 @@ import Share from "./pages/Share";
 
 const router = createBrowserRouter([
   {
-    path: "/",
+    path: "/getting-started",
     Component: Landing,
   },
   {
-    path: "/activity",
+    path: "/",
     Component: Activity,
   },
   {
