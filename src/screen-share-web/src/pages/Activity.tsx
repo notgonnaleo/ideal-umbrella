@@ -16,6 +16,13 @@ const LIVEKIT_MAPPED_PATH = import.meta.env.VITE_MAPPED_LIVEKIT_URL;
 const SHARE_PAGE_URL = import.meta.env.VITE_SHARE_PAGE_URL;
 const DISCORD_CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID;
 
+function createSessionId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 function mapServerUrl(rawServerUrl: string) {
   if (rawServerUrl.includes(LIVEKIT_URL)) {
     return `wss://${window.location.host}${LIVEKIT_MAPPED_PATH}`;
@@ -42,7 +49,7 @@ export default function ActivityPage() {
 
   // Stable id for this Activity instance; the external share page derives the
   // sharer identity from it so we can recognise "my" share and auto-select it.
-  const sessionId = useRef(crypto.randomUUID()).current;
+  const sessionId = useRef(createSessionId()).current;
   const myShareIdentity = `sharer-${sessionId}`;
 
   function log(msg: string) {

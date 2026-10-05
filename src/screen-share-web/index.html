@@ -10,11 +10,59 @@
       content="Umbrella is a simple Discord Activity for sharing your screen with your community."
     />
 
-    <script src="https://cdn.tailwindcss.com"></script>
   </head>
 
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <pre id="activity-diagnostics" style="display:none;white-space:pre-wrap;background:#202020;color:#fff;padding:12px;margin:12px;font:13px monospace"></pre>
+    <script id="react-entry" type="module" src="/src/main.tsx"></script>
+    <script>
+      (() => {
+        const panel = document.getElementById("activity-diagnostics");
+        const report = (message) => {
+          panel.style.display = "block";
+          panel.textContent += `${panel.textContent ? "\n" : ""}${message}`;
+        };
+
+        window.addEventListener("error", (event) => {
+          const target = event.target;
+          const detail = event.error?.stack || event.error?.message || event.message ||
+            (target instanceof HTMLScriptElement ? `Failed script: ${target.src}` : `Error target: ${target?.tagName || "unknown"}`);
+          report(`JS/resource error: ${detail}\n${event.filename || ""}:${event.lineno || ""}:${event.colno || ""}`);
+        }, true);
+        window.addEventListener("unhandledrejection", (event) => {
+          const reason = event.reason;
+          report(`Promise error: ${reason?.stack || reason?.message || String(reason)}`);
+        });
+
+        const moduleScripts = [...document.querySelectorAll('script[type="module"][src]')];
+        const entry = document.getElementById("react-entry") || moduleScripts.at(-1);
+        if (!entry) {
+          report("No module script was found in the HTML.");
+          return;
+        }
+        entry.addEventListener("load", () => {
+          const root = document.getElementById("root");
+          window.setTimeout(() => {
+            if (!root?.textContent?.trim()) {
+              report(`React module loaded, but #root stayed empty. Entry: ${entry.src}`);
+            }
+          }, 0);
+        });
+        entry.addEventListener("error", () => report(`FAILED to load React entry module: ${entry.src}`));
+        fetch(entry.src, { cache: "no-store" }).then(async (response) => {
+          const contentType = response.headers.get("content-type") || "(none)";
+          if (!response.ok || !contentType.includes("javascript")) {
+            const snippet = (await response.text()).slice(0, 100).replace(/\s+/g, " ");
+            report(`Bundle fetch: HTTP ${response.status}; ${contentType}; body: ${snippet || "(empty)"}`);
+          }
+        }).catch((error) => report(`Bundle fetch rejected: ${error?.message || String(error)}`));
+        window.setTimeout(() => {
+          if (!document.getElementById("root")?.textContent?.trim() && !panel.textContent) {
+            report(`Still waiting for React entry module: ${entry.src}`);
+          }
+        }, 4000);
+      })();
+    </script>
   </body>
 </html>
